@@ -1,0 +1,169 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ 
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+
+
+ 
+
+```{r pressure, echo=FALSE}
+library(visdat)
+library(ggplot2)
+library(naniar)
+#library(corrgram)
+library(rpart)
+
+library(rpart.plot)
+library(carData)
+library(missForest)
+library(caret)
+library(recipes)
+
+ass1Dat <- read.csv("Ass2Data.csv", header = TRUE)
+#dat[,dat$HEALTHCARE_COST == "NA"] <- 0
+# remove "DEATHRATE" column
+# 3 Identify all possible missing value placeholders eg "", "na","N/A", -1, -99 etc. Replace these with NA
+null_value <- c("","na", "N/A","NA",-99,"--")
+for (i in null_value){
+  ass1Dat[ass1Dat==i] <- NA
+}
+
+```
+```{r pressure, echo=FALSE}
+  
+
+rfMod <- caret::train(DEATHRATE ~ ., data=ass1Dat, method="rf", importance = FALSE, na.action = na.exclude)
+
+plot(caret::varImp(rfMod), top = 10)
+```
+```{r pressure, echo=FALSE}
+pMiss <- function(x){ sum(is.na(x))/length(x)*100 }
+threshold <- 50
+
+cRatio <- apply(X = ass1Dat, MARGIN = 2, FUN = pMiss) # run pMiss for each column of the data frame
+
+#cat("Variables to remove:", paste(colnames(dat)[cRatio >= threshold], collapse = ","))
+
+
+
+
+
+# Identify any numeric and categorical missing values that are "Not Applicable" and create new levels for these values.
+ass1Dat$num_shadow <- as.numeric(is.na(ass1Dat$HEALTHCARE_COST))# create a shadow variable
+
+ass1Dat$HEALTHCARE_COST[is.na(ass1Dat$HEALTHCARE_COST)] <- 0 #Assign missing to zero
+
+#ass1Dat$HEALTHCARE_BASIS <- as.factor(ass1Dat$HEALTHCARE_BASIS)
+
+cRatio <- apply(ass1Dat,2,pMiss)
+ass1Dat <- ass1Dat[, cRatio < 50]
+# then observations
+rRatio <- apply(ass1Dat,1,pMiss)
+ass1Dat <- ass1Dat[rRatio < 42, ]
+```
+```{r pressure, echo=FALSE}
+ass1Dat$MISSINGNESS <- apply(X = is.na(ass1Dat), MARGIN = 1, FUN = sum)
+library(rpart)
+ass1Dat$missingness <- apply(X = is.na(ass1Dat), MARGIN = 1, FUN = sum)
+
+
+# Create a test - train split. 
+drops <- c("num","MISSINGNESS","num_shadow")
+newframe <- ass1Dat[,!(names(ass1Dat) %in% drops)]
+tree <- caret::train(missingness ~ ., 
+                     data = newframe, 
+                     method="rpart", 
+                     na.action = na.rpart)
+
+rpart.plot(tree$finalModel, 
+           main = "Predicting the number of missing variables in an observation",
+           sub = "Check whether the outcome variable is an important variable",
+           roundint = TRUE, 
+           clip.facs = TRUE)
+```
+```{r pressure, echo=FALSE}
+
+```
+```{r pressure, echo=FALSE}
+newframe$COUNTRY <- ass1Dat$COUNTRY
+newframe
+# Create a test - train split.
+
+subIndex <- caret::createDataPartition(y = newframe$DEATHRATE, p = 0.7, list = FALSE)
+
+train <- newframe[subIndex,]
+
+
+test <- newframe[-subIndex,]
+```
+```{r pressure, echo=FALSE}
+library(dplyr) 
+# change the recipe order to calculate RMSE
+ rec <- recipes::recipe(DEATHRATE ~., data = train) %>%
+   #update_role(COUNTRY, new_role="id") %>%
+   step_knnimpute(all_predictors(), neighbours = 5) %>%
+   step_center(all_numeric(), -has_role("outcome")) %>%
+   step_scale(all_numeric(), -has_role("outcome")) %>%
+  
+   step_dummy(all_nominal())
+ model <- caret::train(rec, data = train, method = "glmnet")
+ Prediction <- predict(model, newdata = test) 
+Prediction_train <- predict(model, newdata = train) 
+#caret::RMSE(predict(model, newdata = test), test$DEATHRATE ) 
+
+```
+```{r pressure, echo=FALSE}
+rec <- recipes::recipe(DEATHRATE ~., data = train) %>%
+  update_role(COUNTRY, new_role="id") %>%
+  
+  step_center(all_numeric(), -has_role("outcome")) %>%
+  step_scale(all_numeric(), -has_role("outcome")) %>%
+  step_knnimpute(all_predictors(), neighbours = 5) %>%
+  step_dummy(all_nominal())
+ Prediction <- predict(model, newdata = test) 
+Prediction_train <- predict(model, newdata = train) 
+caret::RMSE(predict(model, newdata = test), test$DEATHRATE ) 
+```
+```{r pressure, echo=FALSE}
+library(caret)
+# library("glmnet")
+require(glmnet)
+
+# optimise the hyperparameters of glm.net 
+model <- caret::train(rec, data = train, method = "glmnet")
+plot(model)
+caret::RMSE(predict(model, newdata = test), test$DEATHRATE ) 
+```
+```{r pressure, echo=FALSE}
+Prediction <- predict(model, newdata = test) 
+Prediction_train <- predict(model, newdata = train) 
+rang <- range(c(test$DEATHRATE, test$Prediction))
+plot <- ggplot(data = test) +
+  geom_point(mapping = aes(x = test$DEATHRATE, y = Prediction)) +
+  geom_abline(slope = 1, col = "blue") +
+  labs(title = "predictions of test data", y = "predicted", x = "actual") +
+  coord_fixed(ratio = 1, xlim = rang, ylim = rang, expand = TRUE)
+plot
+```
+```{r pressure, echo=FALSE}
+Resi <- Prediction_train-train$DEATHRATE 
+#class(train$Prediction)
+
+car::Boxplot(Resi,col = "blue")
+```
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
